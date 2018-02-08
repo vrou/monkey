@@ -134,6 +134,7 @@ class InfectionMonkey(object):
 
             machines = self._network.get_victim_machines(WormConfiguration.scanner_class,
                                                          max_find=WormConfiguration.victims_max_find,
+                                                         scan_size=WormConfiguration.victims_scan_chunk,
                                                          stop_callback=ControlClient.check_for_stop)
             is_empty = True
             for machine in machines:
