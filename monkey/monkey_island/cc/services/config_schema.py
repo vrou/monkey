@@ -424,6 +424,12 @@ SCHEMA = {
                             "type": "integer",
                             "default": 60,
                             "description": "Time to keep tunnel open before going down after last exploit (in seconds)"
+                        },
+                        "victims_scan_chunk": {
+                            "title": "Parallel scan limit",
+                            "type": "integer",
+                            "default": 2,
+                            "description": "Number of possible victims to scan in parallel"
                         }
                     }
                 },
