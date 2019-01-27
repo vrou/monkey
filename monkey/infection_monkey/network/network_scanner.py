@@ -1,6 +1,8 @@
 import itertools
 import logging
 import time
+from functools import partial
+from multiprocessing.dummy import Pool as ThreadPool
 
 from common.network.network_range import *
 from infection_monkey.config import WormConfiguration
@@ -35,6 +37,7 @@ class NetworkScanner(object):
     def __init__(self):
         self._ip_addresses = None
         self._ranges = None
+        self.pool = ThreadPool()
 
     def initialize(self):
         """
@@ -79,11 +82,12 @@ class NetworkScanner(object):
 
         return subnets_to_scan
 
-    def get_victim_machines(self, max_find=5, stop_callback=None):
+    def get_victim_machines(self, max_find=5, scan_size=ITERATION_BLOCK_SIZE, stop_callback=None):
         """
         Finds machines according to the ranges specified in the object
         :param scan_type: A hostscanner class, will be instanced and used to scan for new machines
         :param max_find: Max number of victims to find regardless of ranges
+        :param scan_size: Number of hosts to scan in parallel
         :param stop_callback: A callback to check at any point if we should stop scanning
         :return: yields a sequence of VictimHost instances
         """
@@ -94,38 +98,34 @@ class NetworkScanner(object):
 
         for net_range in self._ranges:
             LOG.debug("Scanning for potential victims in the network %r", net_range)
-            for victim_chunk in _grouper(net_range, ITERATION_BLOCK_SIZE):
+            for scan_chunk in _grouper(net_range, scan_size):
 
                 if stop_callback and stop_callback():
                     LOG.debug("Got stop signal")
-                    break
-
-                victim_chunk = [VictimHost(x) for x in victim_chunk]
+                    return
 
                 # skip self IP address
-                victim_chunk = [x for x in victim_chunk if x.ip_addr not in self._ip_addresses]
+                scan_chunk = [x for x in scan_chunk if x.ip_addr not in self._ip_addresses]
 
                 # skip IPs marked as blocked
-                bad_victims = [x for x in victim_chunk if x.ip_addr in WormConfiguration.blocked_ips]
+                bad_victims = [x for x in scan_chunk if x.ip_addr in WormConfiguration.blocked_ips]
                 for victim in bad_victims:
                     LOG.info("Skipping %s due to blacklist" % victim)
 
-                victim_chunk = [x for x in victim_chunk if x.ip_addr not in WormConfiguration.blocked_ips]
+                scan_chunk = [x for x in scan_chunk if x.ip_addr not in WormConfiguration.blocked_ips]
 
-                LOG.debug("Scanning %r...", victim_chunk)
-                for victim in victim_chunk:
-                    ping_alive = ping_scan.is_host_alive(victim)
-                    tcp_alive = tcp_scan.is_host_alive(victim)
-                    # if scanner detect machine is up, add it to victims list
-                    if ping_alive or tcp_alive:
-                        LOG.debug("Found potential victim: %r", victim)
-                        victims_count += 1
-                        yield victim
+                LOG.debug("Scanning %r...", scan_chunk)
 
-                        if victims_count >= max_find:
-                            LOG.debug("Found max needed victims (%d), stopping scan", max_find)
+                results = self.pool.map(partial(self.scan_machine, scanners=[tcp_scan, ping_scan]),
+                                        scan_chunk)
+                victims_chunk = [x for x in results if x]  # filter out dead addresses
 
-                            break
+                for victim in victims_chunk:
+                    victims_count += 1
+                    yield victim
+                    if victims_count >= max_find:
+                        LOG.debug("Found max needed victims (%d), stopping scan", max_find)
+                        return
 
                 if WormConfiguration.tcp_scan_interval:
                     time.sleep(WormConfiguration.tcp_scan_interval)
@@ -136,3 +136,22 @@ class NetworkScanner(object):
             if NetworkRange.get_range_obj(subnet_str).is_in_range(ip_address):
                 return True
         return False
+
+    @staticmethod
+    def scan_machine(target_ip, scanners):
+        """
+        Scans specific machine using given scanner
+        :param target_ip: VictimHost machine
+        :param scanners: HostScanner instances
+        :return: Victim or None if victim isn't alive
+        """
+        LOG.debug("Scanning potential target_ip: %r", target_ip)
+        victim = VictimHost(target_ip)
+
+        results = [x.is_host_alive(victim) for x in scanners]
+        is_alive = any(results)
+        if is_alive:
+            LOG.debug("Found potential target_ip: %r", victim)
+            return victim
+        else:
+            return None
