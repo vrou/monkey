@@ -1,3 +1,4 @@
+import itertools
 import logging
 import time
 
@@ -5,13 +6,29 @@ from common.network.network_range import *
 from infection_monkey.config import WormConfiguration
 from infection_monkey.network.info import local_ips, get_interfaces_ranges
 from infection_monkey.model import VictimHost
-from infection_monkey.network import HostScanner
 from infection_monkey.network import TcpScanner, PingScanner
+
 __author__ = 'itamar'
 
 LOG = logging.getLogger(__name__)
 
 SCAN_DELAY = 0
+ITERATION_BLOCK_SIZE = 5
+
+
+def _grouper(iterable, size):
+    """
+    Goes over an iterable using chunks
+    :param iterable: Possible iterable, if required, will cast
+    :param size:  Chunk size, last chunk may be smaller
+    :return:
+    """
+    it = iter(iterable)
+    while True:
+        group = tuple(itertools.islice(it, size))
+        if not group:
+            break
+        yield group
 
 
 class NetworkScanner(object):
@@ -71,41 +88,44 @@ class NetworkScanner(object):
         :return: yields a sequence of VictimHost instances
         """
 
-        TCPscan = TcpScanner()
-        Pinger = PingScanner()
+        tcp_scan = TcpScanner()
+        ping_scan = PingScanner()
         victims_count = 0
 
         for net_range in self._ranges:
             LOG.debug("Scanning for potential victims in the network %r", net_range)
-            for ip_addr in net_range:
-                victim = VictimHost(ip_addr)
+            for victim_chunk in _grouper(net_range, ITERATION_BLOCK_SIZE):
+
                 if stop_callback and stop_callback():
                     LOG.debug("Got stop signal")
                     break
 
+                victim_chunk = [VictimHost(x) for x in victim_chunk]
+
                 # skip self IP address
-                if victim.ip_addr in self._ip_addresses:
-                    continue
+                victim_chunk = [x for x in victim_chunk if x.ip_addr not in self._ip_addresses]
 
                 # skip IPs marked as blocked
-                if victim.ip_addr in WormConfiguration.blocked_ips:
+                bad_victims = [x for x in victim_chunk if x.ip_addr in WormConfiguration.blocked_ips]
+                for victim in bad_victims:
                     LOG.info("Skipping %s due to blacklist" % victim)
-                    continue
 
-                LOG.debug("Scanning %r...", victim)
-                pingAlive = Pinger.is_host_alive(victim)
-                tcpAlive = TCPscan.is_host_alive(victim)
+                victim_chunk = [x for x in victim_chunk if x.ip_addr not in WormConfiguration.blocked_ips]
 
-                # if scanner detect machine is up, add it to victims list
-                if pingAlive or tcpAlive:
-                    LOG.debug("Found potential victim: %r", victim)
-                    victims_count += 1
-                    yield victim
+                LOG.debug("Scanning %r...", victim_chunk)
+                for victim in victim_chunk:
+                    ping_alive = ping_scan.is_host_alive(victim)
+                    tcp_alive = tcp_scan.is_host_alive(victim)
+                    # if scanner detect machine is up, add it to victims list
+                    if ping_alive or tcp_alive:
+                        LOG.debug("Found potential victim: %r", victim)
+                        victims_count += 1
+                        yield victim
 
-                    if victims_count >= max_find:
-                        LOG.debug("Found max needed victims (%d), stopping scan", max_find)
+                        if victims_count >= max_find:
+                            LOG.debug("Found max needed victims (%d), stopping scan", max_find)
 
-                        break
+                            break
 
                 if WormConfiguration.tcp_scan_interval:
                     time.sleep(WormConfiguration.tcp_scan_interval)
