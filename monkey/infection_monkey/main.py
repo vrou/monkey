@@ -42,6 +42,7 @@ def main():
     global LOG
 
     if 2 > len(sys.argv):
+        print("Not enough arguments provided")
         return True
 
     monkey_mode = sys.argv[1]
