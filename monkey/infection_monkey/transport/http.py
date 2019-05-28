@@ -6,7 +6,6 @@ import threading
 import urllib
 from logging import getLogger
 from urlparse import urlsplit
-from threading import Lock
 
 import infection_monkey.monkeyfs as monkeyfs
 from infection_monkey.transport.base import TransportProxyBase, update_last_serve_time

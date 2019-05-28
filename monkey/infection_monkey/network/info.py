@@ -1,14 +1,12 @@
-import os
-import sys
+import itertools
 import socket
 import struct
-import psutil
-import ipaddress
-import itertools
-import netifaces
-from subprocess import check_output
+import sys
 from random import randint
+from subprocess import check_output
 
+import netifaces
+import psutil
 import requests
 from requests import ConnectionError
 
@@ -158,7 +156,6 @@ def get_interfaces_ranges():
     for net_interface in ifs:
         address_str = net_interface['addr']
         netmask_str = net_interface['netmask']
-        ip_interface = ipaddress.ip_interface(u"%s/%s" % (address_str, netmask_str))
         # limit subnet scans to class C only
         res.append(CidrRange(cidr_range="%s/%s" % (address_str, netmask_str)))
     return res

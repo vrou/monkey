@@ -16,6 +16,7 @@ from infection_monkey.model import MONKEY_CMDLINE_WINDOWS, MONKEY_CMDLINE_LINUX,
 from infection_monkey.system_info import SystemInfoCollector, OperatingSystem
 
 if "win32" == sys.platform:
+    # noinspection PyUnresolvedReferences
     from win32process import DETACHED_PROCESS
 else:
     DETACHED_PROCESS = 0
