@@ -25,3 +25,4 @@ wheel
 mongoengine
 mongomock
 requests
+rsa>=4.7 # not directly required, pinned by Snyk to avoid a vulnerability
